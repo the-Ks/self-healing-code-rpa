@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "self-healing-code-rpa"
+version = "0.1.0"
+description = "A Python + Playwright framework for selector-level self-healing Web RPA Skills."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "Self-Healing Code RPA Contributors" }
+]
+dependencies = [
+  "playwright>=1.45.0",
+  "PyYAML>=6.0.1"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0"
+]
+
+[project.scripts]
+code-rpa = "code_rpa.cli:main"
+code_rpa = "code_rpa.cli:main"
+
+[tool.setuptools]
+packages = [
+  "code_rpa",
+  "repair_agent",
+  "rpa_runtime",
+  "skill_registry"
+]
