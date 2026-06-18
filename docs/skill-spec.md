@@ -19,9 +19,12 @@ The current validator requires:
 - `skill.yaml`
 - `selectors.yaml`
 - `repair_policy.yaml`
+- `main.py`
 - `tests/test_skill.py`
+- required `skill.yaml` fields
 - unique step IDs
 - valid selector references
+- valid selector definitions
 - valid repair policy structure
 
 ## `skill.yaml`
@@ -133,8 +136,8 @@ export_button:
 Rules:
 
 - `selector_ref` values in `skill.yaml` must exist in `selectors.yaml`.
-- `primary` should be the preferred selector.
-- `fallbacks` should list stable alternatives.
+- `primary` must be a non-empty string.
+- `fallbacks` must be a list of strings when present.
 - Keep selectors specific enough for deterministic automation.
 
 ## `repair_policy.yaml`
@@ -161,6 +164,7 @@ Validator checks:
 - `retry.delay_seconds` is a non-negative number.
 - `allowed_patch_scope` is a list when present.
 - `sandbox` is required.
+- `sandbox.required` is a boolean.
 - `sandbox.command` is a non-empty list of strings.
 
 ## Validation
@@ -180,7 +184,24 @@ Expected failure output:
 ```text
 FAIL
 - Missing selectors.yaml
+- Missing required skill.yaml field: entrypoint
 - Duplicate step_id: click_export
+- Unknown selector_ref: export_button
+- Selector 'export_button' fallbacks must be a list of strings
+```
+
+## CLI Generation
+
+```powershell
+code-rpa --project-root . skill create invoice_export
+```
+
+The generated default Skill can be validated, run, and tested immediately:
+
+```powershell
+code-rpa --project-root . skill validate invoice_export
+code-rpa --project-root . skill run invoice_export
+code-rpa --project-root . skill test invoice_export
 ```
 
 ## SDK Generation

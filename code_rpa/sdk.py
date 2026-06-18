@@ -146,11 +146,31 @@ Generated Self-Healing Code RPA Skill.
 ```powershell
 python -m code_rpa skill show {self.skill_id}
 python -m code_rpa skill validate {self.skill_id}
+python -m code_rpa skill run {self.skill_id}
 python -m code_rpa skill test {self.skill_id}
 ```
 """
 
     def _test_skill(self) -> str:
+        run_test = ""
+        if not self.steps:
+            run_test = '''
+
+class FakePage:
+    def __init__(self):
+        self.urls = []
+
+    def goto(self, url):
+        self.urls.append(url)
+
+
+def test_skill_runs_default_navigation(tmp_path):
+    page = FakePage()
+    result = module.run(page=page, storage_root=tmp_path)
+
+    assert result.status == "success"
+    assert page.urls == ["about:blank"]
+'''
         return f'''from pathlib import Path
 import importlib.util
 import sys
@@ -166,10 +186,11 @@ spec.loader.exec_module(module)
 from skill_registry.loader import SkillLoader
 
 
-def test_skill_loads(tmp_path):
+def test_skill_loads():
     skill = SkillLoader().load(SKILL_DIR / "skill.yaml")
     assert skill.id == "{self.skill_id}"
     assert skill.entrypoint == "main.py"
+{run_test}
 '''
 
     def _default_repair_policy(self) -> dict[str, Any]:

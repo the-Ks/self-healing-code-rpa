@@ -19,6 +19,8 @@ class SkillValidationResult:
 class SkillValidator:
     """Validate Skill files without executing runtime code."""
 
+    REQUIRED_SKILL_FIELDS = ["id", "name", "version", "entrypoint", "selectors", "repair_policy", "steps"]
+    SUPPORTED_STEP_TYPES = {"navigate", "click", "fill", "login", "select_date_range", "wait_for_selector"}
     SELECTOR_REF_STEP_TYPES = {"click", "fill", "wait_for_selector"}
     SELECTOR_REFS_BY_STEP_TYPE = {
         "login": {"username", "password", "submit"},
@@ -43,7 +45,11 @@ class SkillValidator:
         repair_policy = self._read_yaml_if_present(repair_policy_path, errors)
 
         if skill is not None:
+            self._validate_skill_header(skill_dir, skill, errors)
             self._validate_steps(skill, selectors or {}, errors)
+
+        if selectors is not None:
+            self._validate_selectors(selectors, errors)
 
         if repair_policy is not None:
             self._validate_repair_policy(repair_policy, errors)
@@ -55,6 +61,7 @@ class SkillValidator:
             "skill.yaml",
             "selectors.yaml",
             "repair_policy.yaml",
+            "main.py",
             "tests/test_skill.py",
         ]
         if not skill_dir.exists():
@@ -79,6 +86,47 @@ class SkillValidator:
             errors.append(f"{path.name} root must be a mapping")
             return None
         return data
+
+    def _validate_skill_header(
+        self,
+        skill_dir: Path,
+        skill: dict[str, Any],
+        errors: list[str],
+    ) -> None:
+        for field_name in self.REQUIRED_SKILL_FIELDS:
+            if field_name not in skill:
+                errors.append(f"Missing required skill.yaml field: {field_name}")
+
+        for field_name in ["id", "name", "version", "entrypoint", "selectors", "repair_policy"]:
+            value = skill.get(field_name)
+            if value is not None and not isinstance(value, str):
+                errors.append(f"skill.yaml field '{field_name}' must be a string")
+
+        skill_id = skill.get("id")
+        if isinstance(skill_id, str) and skill_id != skill_dir.name:
+            errors.append(f"skill.yaml id must match directory name: expected {skill_dir.name}, got {skill_id}")
+
+        entrypoint = skill.get("entrypoint")
+        if isinstance(entrypoint, str) and not (skill_dir / entrypoint).exists():
+            errors.append(f"Missing entrypoint file: {entrypoint}")
+
+    def _validate_selectors(self, selectors: dict[str, Any], errors: list[str]) -> None:
+        for selector_ref, selector in selectors.items():
+            if not isinstance(selector_ref, str) or not selector_ref:
+                errors.append("Selector refs must be non-empty strings")
+                continue
+            if not isinstance(selector, dict):
+                errors.append(f"Selector '{selector_ref}' must be a mapping")
+                continue
+
+            primary = selector.get("primary")
+            if not isinstance(primary, str) or not primary:
+                errors.append(f"Selector '{selector_ref}' primary must be a non-empty string")
+
+            fallbacks = selector.get("fallbacks", [])
+            if fallbacks is not None:
+                if not isinstance(fallbacks, list) or not all(isinstance(item, str) for item in fallbacks):
+                    errors.append(f"Selector '{selector_ref}' fallbacks must be a list of strings")
 
     def _validate_steps(
         self,
@@ -106,6 +154,21 @@ class SkillValidator:
             seen_step_ids.add(str(step_id))
 
             step_type = step.get("type")
+            if not step_type:
+                errors.append(f"Step {step_id} is missing type")
+                continue
+            if step_type not in self.SUPPORTED_STEP_TYPES:
+                errors.append(f"Unsupported step type in step {step_id}: {step_type}")
+                continue
+
+            if not step.get("goal"):
+                errors.append(f"Step {step_id} is missing goal")
+
+            if step_type == "navigate":
+                url = step.get("url")
+                if not isinstance(url, str) or not url:
+                    errors.append(f"Step {step_id} navigate url must be a non-empty string")
+
             if step_type in self.SELECTOR_REF_STEP_TYPES:
                 selector_ref = step.get("selector_ref")
                 if not selector_ref:
@@ -159,6 +222,10 @@ class SkillValidator:
         if not isinstance(sandbox, dict):
             errors.append("repair_policy.sandbox must be a mapping")
             return
+
+        required = sandbox.get("required")
+        if not isinstance(required, bool):
+            errors.append("repair_policy.sandbox.required must be a boolean")
 
         command = sandbox.get("command")
         if not isinstance(command, list) or not command or not all(isinstance(item, str) for item in command):
