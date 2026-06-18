@@ -2,29 +2,58 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## [Unreleased]
 
-### Improvements
+## [0.2.0] - 2026-06-18
 
-- Hardened the selector-level repair pipeline with an explicit validation, sandbox, apply, version, and rollback orchestration layer.
-- Added `code-rpa repair apply` for end-to-end selector repair using existing `repair_request.json` and static `patch.json` artifacts.
-- Added audit fields to repair requests and version metadata, including attempted selectors, run log paths, repair request paths, source versions, new versions, and apply results.
-- Added safer sandbox selector patch writes and safer live Skill replacement during version application.
-- Strengthened patch validation for path traversal, absolute paths, protected framework directories, unknown patch types, selector scope, and target file scope.
-- Locked sandbox command execution to framework-generated `repair_request.json` `test_command` arrays and reject any `test_command` supplied by `patch.json`.
+### Added
 
-### Tests
+- Added `code-rpa skill create` for generating standard Skill directories from repository templates.
+- Added standard Skill template generation for `skill.yaml`, `selectors.yaml`, `repair_policy.yaml`, `main.py`, `README.md`, and `tests/test_skill.py`.
+- Added the `SkillBuilder` SDK for creating Skill scaffolds from Python code.
+- Enhanced Skill validation for required files, YAML structure, required fields, duplicate step IDs, selector references, repair policy structure, and standard directory layout.
+- Added the Skill developer flow for `skill validate`, `skill run`, and `skill test`.
+- Added `RepairPipeline` orchestration for validation, sandbox verification, live apply, version creation, and rollback-safe failure handling.
+- Added `code-rpa repair apply` stage output for validation, sandbox, apply, version, and repair results.
+- Added isolated sandbox execution for selector-only repair patches.
+- Added Skill snapshots, version metadata, current-version tracking, and rollback support.
+- Added end-to-end Repair Pipeline regression coverage for original success, selector failure, repair request creation, static patch validation, sandbox verification, live apply, version creation, rerun success, and rollback.
+- Added CONTRIBUTING, SECURITY, architecture documentation, Skill specification documentation, repository Codex guidance, and GitHub Actions test workflow.
 
-- Added end-to-end repair pipeline coverage for original success, selector failure, repair request creation, static patch validation, sandbox verification, live apply, version creation, rerun success, and rollback.
-- Added negative coverage for target file overreach, selector ref overreach, failed step mismatch, skill mismatch, non-null `code_changes`, path traversal, unknown patch type, sandbox failure, idempotent fallback application, and rollback content restoration.
+### Changed
 
-### Boundaries
+- Improved Skill creation next-step guidance after scaffolding.
+- Improved Skill validation error messages for missing files, duplicate step IDs, unknown selector refs, and malformed policy files.
+- Expanded repair request failure context with URL, screenshot and DOM paths, logs, failed step data, attempted selectors, allowed files, and allowed selector refs.
+- Added independent `--basetemp` directories for pytest subprocesses started by Skill tests and sandbox tests.
+- Configured pytest with `--import-mode=importlib` so multiple Skills can keep the standard `tests/test_skill.py` filename.
+- Improved Windows and multi-Skill test stability without changing Runtime, Repair, Registry, or Version behavior.
 
-- Normal Skill execution still does not call an LLM.
-- Patches remain selector-only.
-- `code_changes` must remain `null`.
-- Sandbox success is required before live Skill modification.
-- No Web UI, Scheduler, OCR, Desktop RPA, real website integration, account management, or multitenancy was added.
+### Fixed
+
+- Fixed Windows `pytest-current` cleanup failures that could make successful nested pytest runs return failure.
+- Fixed `import file mismatch` when multiple Skills each contain `tests/test_skill.py`.
+- Fixed sandbox failure handling so a failed sandbox cannot modify the live Skill.
+- Fixed live Skill restoration when version creation or live replacement fails partway through.
+- Fixed repeated patch or version replay cases from duplicating fallback selectors or claiming success incorrectly.
+- Fixed temporary file and partial version cleanup paths around selector patch application and version writes.
+
+### Security
+
+- Kept patch scope constrained to selector-only changes.
+- Rejected absolute paths and `..` traversal in patch targets.
+- Rejected unauthorized target files outside allowed repair files.
+- Rejected unauthorized selector references outside allowed selector refs.
+- Rejected unknown patch types.
+- Rejected unknown patch fields.
+- Rejected non-null `code_changes`.
+- Kept `test_command` trusted only when it comes from a framework-generated `repair_request.json`.
+- Kept subprocess execution as argument arrays.
+- Kept sandbox command execution on `shell=False`.
+- Rejected shell strings and dangerous shell metacharacters in sandbox test commands.
+- Added symlink and junction escape protection for selector patch paths.
+- Used atomic YAML replacement for selector writes.
+- Preserved failure recovery and rollback behavior before live Skill changes are accepted.
 
 ## v0.1.0 - 2026-06-18
 

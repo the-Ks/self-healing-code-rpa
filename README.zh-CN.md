@@ -2,7 +2,7 @@
 
 一个将网页自动化流程封装成可运行、可测试、可修复、可回滚 Skill 的自愈型 Code RPA 框架。
 
-当前版本是 `v0.1.0`。它聚焦于 Web RPA、Python + Playwright、YAML Skill、自愈修复闭环和版本回滚。
+当前版本是 `v0.2.0`。它聚焦于 Web RPA、Python + Playwright、YAML Skill、Skill 开发体验、selector-only 自愈修复闭环、沙箱验证、版本化和回滚。
 
 ## 核心理念
 
@@ -29,7 +29,7 @@ Skill
   -> rollback
 ```
 
-正常执行时不调用 LLM。只有当流程失败时，框架才生成结构化修复上下文，并允许经过严格校验的选择器级补丁进入沙箱测试和版本化流程。
+正常执行不调用 LLM。框架优先执行稳定的 Python + Playwright 代码；只有当确定性执行和备用选择器恢复失败后，才生成结构化修复上下文，并允许经过严格校验的 selector-only 补丁进入沙箱测试和版本化流程。
 
 ## 当前能力边界
 
@@ -37,29 +37,37 @@ Skill
 
 - Web RPA
 - Python + Playwright 运行时
+- 稳定代码优先执行
 - 基于 YAML 的 Skill 定义
 - 主选择器与备用选择器解析
 - 步骤级执行日志
-- 失败现场快照捕获
+- 失败现场快照捕获，包括截图、DOM、URL、日志、失败步骤和 attempted selectors
 - `repair_request.json` 生成
-- 选择器级 `patch.json` 校验
+- 当前修复范围为 selector-only
+- selector-only `patch.json` 严格校验
+- Patch apply
 - 沙箱补丁测试
 - Skill 版本化
 - 回滚到历史版本
-- CLI、Skill Generator、Skill Validator、Skill SDK、Version CLI
+- CLI、Skill create、Skill validate、Skill run、Skill test、Skill SDK、Version CLI
 
 暂不支持：
 
 - OCR
-- Desktop RPA
+- 桌面 RPA
+- 完整自主 AI Agent
+- 正常执行阶段的 LLM 控制
+- 可视化流程设计器
 - 调度系统
 - Web UI
+- SaaS
 - 多租户
 - 云端运行
 - 数据库重构
-- 真实网站集成
+- 通用真实网站适配
 - 正常执行期间的 LLM 调用
 - 由 AI 自动自由改写代码
+- 无人工控制的高风险操作
 
 ## 安装
 
@@ -103,6 +111,7 @@ example_skills/
 code-rpa --project-root . skill list
 code-rpa --project-root . skill show web_report_export
 code-rpa --project-root . skill validate web_report_export
+code-rpa --project-root . skill run web_report_export
 code-rpa --project-root . skill create invoice_export
 code-rpa --project-root . skill test web_report_export
 ```
@@ -120,6 +129,7 @@ code-rpa --project-root . version rollback web_report_export <version_id>
 
 ```powershell
 code-rpa --project-root . repair validate path\to\repair_request.json path\to\patch.json
+code-rpa --project-root . repair apply path\to\repair_request.json path\to\patch.json
 ```
 
 ## Skill SDK
@@ -157,11 +167,7 @@ SDK 只负责生成标准 Skill 文件，不改变 Runtime，不调用 LLM，也
 python -m pytest
 ```
 
-当前基线：
-
-```text
-27 passed
-```
+当前测试数量会随发布准备和回归覆盖变化，请以本地 `python -m pytest` 输出为准。
 
 ## 架构模块
 
