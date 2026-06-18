@@ -1,5 +1,8 @@
 from pathlib import Path
 import shutil
+import subprocess
+import sys
+import uuid
 
 import code_rpa.cli as cli
 import pytest
@@ -111,6 +114,43 @@ def test_cli_skill_test_uses_unique_pytest_basetemp(tmp_path, monkeypatch):
     assert captured_run["check"] is False
     assert captured_run["shell"] is False
     assert not basetemp.exists()
+
+
+def test_project_pytest_collects_multiple_standard_skill_test_modules(tmp_path):
+    project = copy_project(tmp_path)
+    unique_suffix = uuid.uuid4().hex[:8]
+    skill_ids = [f"multi_collect_{unique_suffix}_one", f"multi_collect_{unique_suffix}_two"]
+
+    for skill_id in skill_ids:
+        assert main(["--project-root", str(project), "skill", "create", skill_id]) == 0
+        assert main(["--project-root", str(project), "skill", "validate", skill_id]) == 0
+        assert main(["--project-root", str(project), "skill", "test", skill_id]) == 0
+
+    test_dirs = [project / "example_skills" / "web_report_export" / "tests"]
+    test_dirs.extend(project / "example_skills" / skill_id / "tests" for skill_id in skill_ids)
+
+    for test_dir in test_dirs:
+        assert (test_dir / "test_skill.py").exists()
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            *(str(test_dir) for test_dir in test_dirs),
+            "--basetemp",
+            str(tmp_path / "multi_skill_collection_basetemp"),
+        ],
+        cwd=project,
+        check=False,
+        capture_output=True,
+        text=True,
+        shell=False,
+    )
+
+    output = completed.stdout + completed.stderr
+    assert "import file mismatch" not in output
+    assert completed.returncode == 0, output
 
 
 def test_cli_skill_create_reports_invalid_skill_id(tmp_path, capsys):
