@@ -59,9 +59,10 @@ def test_skill_builder_generates_standard_skill_files(tmp_path):
 def test_skill_builder_default_scaffold_test_runs(tmp_path):
     skills_root = tmp_path / "example_skills"
     skill_dir = SkillBuilder("basic_export", skills_root=skills_root).save()
+    basetemp = tmp_path / "sdk_child_pytest_basetemp"
 
     completed = subprocess.run(
-        [sys.executable, "-m", "pytest", str(skill_dir / "tests")],
+        [sys.executable, "-m", "pytest", str(skill_dir / "tests"), "--basetemp", str(basetemp)],
         cwd=PROJECT_ROOT,
         check=False,
         capture_output=True,

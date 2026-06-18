@@ -6,8 +6,10 @@ import argparse
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import sys
+import tempfile
 from typing import Any
 
 from code_rpa import __version__
@@ -222,12 +224,17 @@ def run_skill(project_root: Path, skill_id: str) -> dict[str, Any]:
 
 def test_skill(project_root: Path, skill_id: str) -> int:
     skill_test_dir = project_root / "example_skills" / skill_id / "tests"
-    completed = subprocess.run(
-        [sys.executable, "-m", "pytest", str(skill_test_dir)],
-        cwd=project_root,
-        check=False,
-    )
-    return completed.returncode
+    basetemp = Path(tempfile.mkdtemp(prefix="code_rpa_skill_test_"))
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-m", "pytest", str(skill_test_dir), "--basetemp", str(basetemp)],
+            cwd=project_root,
+            check=False,
+            shell=False,
+        )
+        return completed.returncode
+    finally:
+        cleanup_temp_dir(basetemp, "skill test pytest basetemp")
 
 
 def load_skill_main(project_root: Path, skill_id: str) -> Any:
@@ -268,3 +275,12 @@ def read_json(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise SystemExit(f"JSON root must be an object: {path}")
     return data
+
+
+def cleanup_temp_dir(path: Path, label: str) -> None:
+    try:
+        shutil.rmtree(path)
+    except FileNotFoundError:
+        return
+    except OSError as error:
+        print(f"warning: failed to clean {label} {path}: {error}", file=sys.stderr)

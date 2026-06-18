@@ -147,6 +147,19 @@ def read_export_fallbacks(project_root: Path) -> list[str]:
     return list(selectors["export_button"].get("fallbacks", []) or [])
 
 
+def basetemp_from(command: list[str]) -> Path:
+    assert "--basetemp" in command
+    return Path(command[command.index("--basetemp") + 1])
+
+
+def is_relative_to(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def test_patch_validator_accepts_legal_fallback_patch(tmp_path):
     project_root = copy_project(tmp_path)
     degrade_export_selectors(project_root)
@@ -253,6 +266,9 @@ def test_sandbox_success_creates_new_version_snapshot(tmp_path):
     )
     assert sandbox_result.success is True
     assert sandbox_result.duration > 0
+    basetemp = basetemp_from(sandbox_result.test_command)
+    assert not is_relative_to(basetemp, project_root / "storage")
+    assert not is_relative_to(basetemp, project_root / "example_skills")
 
     version_manager = VersionManager(tmp_path / "versions")
     version_dir = version_manager.create_new_version(
@@ -272,6 +288,26 @@ def test_sandbox_success_creates_new_version_snapshot(tmp_path):
     assert versions[0]["test_result"]["success"] is True
     assert current["skill_version"] == "0.2.1"
     assert "button[data-testid='export-button']" in read_export_fallbacks(project_root)
+
+
+def test_sandbox_preserves_existing_pytest_basetemp(tmp_path):
+    project_root = copy_project(tmp_path)
+    degrade_export_selectors(project_root)
+    skill, _, repair_request = run_failure_scenario(project_root, tmp_path / "storage")
+    patch = valid_patch(skill, repair_request)
+    custom_basetemp = tmp_path / "custom_sandbox_basetemp"
+    repair_request["test_command"] = [*repair_request["test_command"], "--basetemp", str(custom_basetemp)]
+
+    sandbox_result = SandboxRunner().run_patch(
+        skill=skill,
+        patch=patch,
+        test_command=repair_request["test_command"],
+        project_root=project_root,
+    )
+
+    assert sandbox_result.success is True
+    assert sandbox_result.test_command.count("--basetemp") == 1
+    assert basetemp_from(sandbox_result.test_command) == custom_basetemp
 
 
 def test_version_manager_can_rollback_to_previous_version(tmp_path):

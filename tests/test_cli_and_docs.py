@@ -1,6 +1,7 @@
 from pathlib import Path
 import shutil
 
+import code_rpa.cli as cli
 import pytest
 from code_rpa.cli import main
 import yaml
@@ -70,6 +71,46 @@ def test_cli_skill_create_outputs_next_steps_and_generates_runnable_skill(tmp_pa
 
     exit_code = main(["--project-root", str(project), "skill", "test", "invoice_export"])
     assert exit_code == 0
+
+
+def test_cli_skill_test_uses_unique_pytest_basetemp(tmp_path, monkeypatch):
+    project = copy_project(tmp_path)
+    main(["--project-root", str(project), "skill", "create", "invoice_export"])
+    captured_run = {}
+    basetemp = tmp_path / "child_pytest_basetemp"
+
+    class Completed:
+        returncode = 0
+
+    def fake_mkdtemp(prefix):
+        assert prefix == "code_rpa_skill_test_"
+        basetemp.mkdir()
+        return str(basetemp)
+
+    def fake_run(command, *, cwd, check, shell):
+        captured_run["command"] = command
+        captured_run["cwd"] = cwd
+        captured_run["check"] = check
+        captured_run["shell"] = shell
+        return Completed()
+
+    monkeypatch.setattr(cli.tempfile, "mkdtemp", fake_mkdtemp)
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+
+    exit_code = main(["--project-root", str(project), "skill", "test", "invoice_export"])
+    command = captured_run["command"]
+
+    assert exit_code == 0
+    assert "--basetemp" in command
+    captured_basetemp = Path(command[command.index("--basetemp") + 1])
+    basetemp_ancestors = [captured_basetemp.resolve(), *captured_basetemp.resolve().parents]
+    assert captured_basetemp == basetemp
+    assert (project / "storage").resolve() not in basetemp_ancestors
+    assert (project / "example_skills").resolve() not in basetemp_ancestors
+    assert captured_run["cwd"] == project
+    assert captured_run["check"] is False
+    assert captured_run["shell"] is False
+    assert not basetemp.exists()
 
 
 def test_cli_skill_create_reports_invalid_skill_id(tmp_path, capsys):
