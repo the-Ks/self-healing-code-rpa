@@ -94,15 +94,26 @@ def load_copied_skill(project_root: Path):
     return prepare_skill(SkillLoader().load(skill_path), fixture_url)
 
 
+def sandbox_test_command() -> list[str]:
+    return [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_runtime.py::test_executor_runs_login_report_export_flow",
+        "tests/test_runtime.py::test_click_export_primary_selector_fails_and_fallback_succeeds",
+    ]
+
+
 def run_failure_scenario(project_root: Path, storage_root: Path):
     skill = load_copied_skill(project_root)
+    skill.repair_policy["sandbox"]["command"] = sandbox_test_command()
     page = FakePage(available_selectors=positive_selectors())
     result = RPAExecutor(storage_root=storage_root).run(skill, page=page)
     repair_request = json.loads(Path(result.repair_request_path).read_text(encoding="utf-8"))
     return skill, result, repair_request
 
 
-def valid_patch(skill, repair_request, test_command=None):
+def valid_patch(skill, repair_request):
     return {
         "patch_id": "patch-export-fallback-001",
         "skill_id": skill.id,
@@ -118,14 +129,6 @@ def valid_patch(skill, repair_request, test_command=None):
         "code_changes": None,
         "reason": "Add a stable data-testid fallback for the export button",
         "risk_level": "low",
-        "test_command": test_command
-        or [
-            "python",
-            "-m",
-            "pytest",
-            "tests/test_runtime.py::test_executor_runs_login_report_export_flow",
-            "tests/test_runtime.py::test_click_export_primary_selector_fails_and_fallback_succeeds",
-        ],
         "allowed_repair_scope": {
             "scope_type": "selector_only",
             "failed_step_id": repair_request["failed_step_id"],
@@ -180,7 +183,7 @@ def test_patch_validator_rejects_runtime_or_main_code_changes(tmp_path):
     validation = PatchValidator().validate_patch(repair_request, patch, current_skill=skill)
 
     assert validation.is_valid is False
-    assert "code_changes must be null in phase two" in validation.errors
+    assert "code_changes must be null in phase three" in validation.errors
 
 
 def test_patch_validator_rejects_ambiguous_or_runtime_target_files(tmp_path):
@@ -208,12 +211,18 @@ def test_sandbox_failure_cannot_create_new_version(tmp_path):
     project_root = copy_project(tmp_path)
     degrade_export_selectors(project_root)
     skill, _, repair_request = run_failure_scenario(project_root, tmp_path / "storage")
-    patch = valid_patch(skill, repair_request, test_command=["python", "-m", "pytest", "tests/does_not_exist.py"])
+    repair_request["test_command"] = ["python", "-m", "pytest", "tests/does_not_exist.py"]
+    patch = valid_patch(skill, repair_request)
 
     validation = PatchValidator().validate_patch(repair_request, patch, current_skill=skill)
     assert validation.is_valid is True
 
-    sandbox_result = SandboxRunner().run_patch(skill=skill, patch=patch, project_root=project_root)
+    sandbox_result = SandboxRunner().run_patch(
+        skill=skill,
+        patch=patch,
+        test_command=repair_request["test_command"],
+        project_root=project_root,
+    )
     version_manager = VersionManager(tmp_path / "versions")
 
     assert sandbox_result.success is False
@@ -236,7 +245,12 @@ def test_sandbox_success_creates_new_version_snapshot(tmp_path):
     validation = PatchValidator().validate_patch(repair_request, patch, current_skill=skill)
     assert validation.is_valid is True
 
-    sandbox_result = SandboxRunner().run_patch(skill=skill, patch=patch, project_root=project_root)
+    sandbox_result = SandboxRunner().run_patch(
+        skill=skill,
+        patch=patch,
+        test_command=repair_request["test_command"],
+        project_root=project_root,
+    )
     assert sandbox_result.success is True
     assert sandbox_result.duration > 0
 
@@ -276,7 +290,12 @@ def test_version_manager_can_rollback_to_previous_version(tmp_path):
     assert failed_again_before_patch.status == "failed"
     assert failed_again_before_patch.steps[-1].step_id == "click_export"
 
-    sandbox_result = SandboxRunner().run_patch(skill=skill, patch=patch, project_root=project_root)
+    sandbox_result = SandboxRunner().run_patch(
+        skill=skill,
+        patch=patch,
+        test_command=repair_request["test_command"],
+        project_root=project_root,
+    )
     assert sandbox_result.success is True
     version_manager.create_new_version(
         skill=skill,
@@ -325,7 +344,12 @@ def test_end_to_end_repair_loop_generates_patch_tests_and_recovers_skill(tmp_pat
     )
     assert validation.is_valid is True
 
-    sandbox_result = SandboxRunner().run_patch(skill=skill, patch=patch, project_root=project_root)
+    sandbox_result = SandboxRunner().run_patch(
+        skill=skill,
+        patch=patch,
+        test_command=repair_request["test_command"],
+        project_root=project_root,
+    )
     assert sandbox_result.success is True
 
     version_manager = VersionManager(tmp_path / "versions")

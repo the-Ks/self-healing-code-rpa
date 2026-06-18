@@ -82,6 +82,7 @@ class RPAExecutor:
                         failed_step=step,
                         step_result=result,
                         snapshot=snapshot,
+                        run_log_path=str(logger.path),
                     )
                     logger.write(
                         "run_failed",
@@ -105,4 +106,3 @@ class RPAExecutor:
         finally:
             if own_session:
                 own_session.close()
-

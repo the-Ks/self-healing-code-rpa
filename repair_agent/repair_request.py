@@ -29,6 +29,7 @@ class RepairRequestGenerator:
         failed_step: dict[str, Any],
         step_result: Any,
         snapshot: Any,
+        run_log_path: str | None = None,
     ) -> str:
         request_dir = self.output_root / run_id
         request_dir.mkdir(parents=True, exist_ok=True)
@@ -50,6 +51,8 @@ class RepairRequestGenerator:
             "current_url": snapshot.current_url,
             "screenshot_path": snapshot.screenshot_path,
             "dom_snapshot_path": snapshot.dom_path,
+            "run_log_path": run_log_path,
+            "attempted_selectors": step_result.attempted_selectors or [],
             "original_code_snippet": self._original_code_snippet(failed_step),
             "original_selector": selector_entry.get("primary"),
             "fallback_selectors": selector_entry.get("fallbacks", []),

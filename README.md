@@ -164,6 +164,7 @@ code-rpa --project-root . skill run web_report_export
 code-rpa --project-root . skill test web_report_export
 code-rpa --project-root . skill create my_new_skill
 code-rpa --project-root . repair validate path\to\repair_request.json path\to\patch.json
+code-rpa --project-root . repair apply path\to\repair_request.json path\to\patch.json
 code-rpa --project-root . version list web_report_export
 code-rpa --project-root . version current web_report_export
 code-rpa --project-root . version show web_report_export <version_id>
@@ -180,6 +181,7 @@ python -m code_rpa skill run web_report_export
 python -m code_rpa skill test web_report_export
 python -m code_rpa skill create my_new_skill
 python -m code_rpa repair validate path\to\repair_request.json path\to\patch.json
+python -m code_rpa repair apply path\to\repair_request.json path\to\patch.json
 python -m code_rpa version list web_report_export
 python -m code_rpa version current web_report_export
 python -m code_rpa version show web_report_export <version_id>
@@ -197,6 +199,7 @@ The request includes:
 - Error type and message.
 - Current URL.
 - Screenshot and DOM snapshot paths.
+- Run log path and attempted selectors.
 - Original selector and fallback selectors.
 - `allowed_repair_scope` with `scope_type: selector_only`.
 - Test command and rollback version.
@@ -224,7 +227,6 @@ Required fields include:
 - `allowed_repair_scope`
 - `reason`
 - `risk_level`
-- `test_command`
 - `created_at`
 
 `selector_changes.target_file` must be a full repository-relative path such as:
@@ -239,10 +241,60 @@ example_skills/web_report_export/selectors.yaml
 
 1. Copies the project to a temporary directory.
 2. Applies the selector patch in the copy.
-3. Runs the patch `test_command`.
+3. Runs `repair_request.json` `test_command` with an argument array and `shell=False`.
 4. Returns `success`, `stdout`, `stderr`, `duration`, and `patched_skill_path`.
 
 Only a successful sandbox result may be passed to `VersionManager.create_new_version`.
+
+## Minimal Selector Repair Example
+
+The repair path uses a static `patch.json` artifact. It does not call an LLM during normal execution, and P3 does not connect to any real LLM API.
+
+1. Run a Skill. If a selector fails, the runtime writes a repair request:
+
+```powershell
+code-rpa --project-root . skill run web_report_export
+```
+
+The failure artifact is written under:
+
+```text
+storage/repair_requests/<run_id>/repair_request.json
+```
+
+2. Validate a selector-only patch:
+
+```powershell
+code-rpa --project-root . repair validate storage\repair_requests\<run_id>\repair_request.json patch.json
+```
+
+3. Apply the patch through the hardened repair pipeline:
+
+```powershell
+code-rpa --project-root . repair apply storage\repair_requests\<run_id>\repair_request.json patch.json
+```
+
+The pipeline performs:
+
+```text
+repair_request.json
+  -> patch.json
+  -> strict validation
+  -> sandbox test command
+  -> original Skill snapshot
+  -> new Skill version
+  -> live Skill replacement
+```
+
+The patch remains constrained:
+
+- `patch_type` must be `selector_update` or `fallback_selector_add`.
+- `code_changes` must be `null`.
+- `selector_changes.target_file` must be in `allowed_files`.
+- `selector_changes.selector_ref` must be in `allowed_selector_refs`.
+- Absolute paths, `..` traversal, runtime files, repair files, registry files, and CLI/framework files are rejected.
+
+If validation or sandbox testing fails, the live Skill is not modified. After a successful repair, use `version rollback` to restore the previous Skill version.
 
 ## Versions And Rollback
 

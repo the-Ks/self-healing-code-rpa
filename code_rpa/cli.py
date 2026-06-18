@@ -14,6 +14,7 @@ from code_rpa import __version__
 from code_rpa.templates import SkillTemplateSystem
 from code_rpa.validator import SkillValidator
 from repair_agent.patch_validator import PatchValidator
+from repair_agent.pipeline import RepairPipeline
 from skill_registry.registry import SkillRegistry
 from skill_registry.version_manager import VersionManager
 
@@ -59,6 +60,9 @@ def build_parser() -> argparse.ArgumentParser:
     repair_validate = repair_sub.add_parser("validate")
     repair_validate.add_argument("repair_request_path")
     repair_validate.add_argument("patch_path")
+    repair_apply = repair_sub.add_parser("apply")
+    repair_apply.add_argument("repair_request_path")
+    repair_apply.add_argument("patch_path")
 
     version_parser = subparsers.add_parser("version")
     version_sub = version_parser.add_subparsers(dest="action")
@@ -128,6 +132,37 @@ def handle_skill(args: argparse.Namespace, project_root: Path) -> int:
 
 
 def handle_repair(args: argparse.Namespace, project_root: Path) -> int:
+    if args.action == "apply":
+        try:
+            result = RepairPipeline(project_root=project_root).apply(
+                args.repair_request_path,
+                args.patch_path,
+            )
+        except Exception as error:
+            print("repair failed")
+            print(f"stage: setup")
+            print(f"- {error}")
+            return 1
+
+        sandbox_status = "SKIPPED"
+        if result.sandbox is not None:
+            sandbox_status = "PASS" if result.sandbox.success else "FAIL"
+        print(f"validation: {'PASS' if result.validation and result.validation.is_valid else 'FAIL'}")
+        print(f"sandbox: {sandbox_status}")
+        print(f"apply: {'PASS' if result.success else 'SKIPPED'}")
+        if result.original_version_id:
+            print(f"source_version_id: {result.original_version_id}")
+        if result.new_version_id:
+            print(f"new_version_id: {result.new_version_id}")
+        if result.success:
+            print("repair: PASS")
+            return 0
+
+        print(f"repair: FAIL at {result.stage}")
+        for error in result.errors:
+            print(f"- {error}")
+        return 1
+
     repair_request = read_json(Path(args.repair_request_path))
     skill_id = repair_request["skill_id"]
     skill = SkillRegistry(project_root / "example_skills").load(skill_id)

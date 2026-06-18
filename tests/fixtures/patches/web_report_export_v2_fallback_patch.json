@@ -1,0 +1,31 @@
+{
+  "patch_id": "patch-export-v2-fallback-001",
+  "skill_id": "web_report_export",
+  "skill_name": "Web Report Export",
+  "base_version": "0.2.0",
+  "target_step_id": "click_export",
+  "patch_type": "fallback_selector_add",
+  "selector_changes": {
+    "target_file": "example_skills/web_report_export/selectors.yaml",
+    "selector_ref": "export_button",
+    "add_fallbacks": [
+      "button[data-testid='export-button-v2']"
+    ]
+  },
+  "code_changes": null,
+  "reason": "Add a stable fallback for the changed export button selector",
+  "risk_level": "low",
+  "allowed_repair_scope": {
+    "scope_type": "selector_only",
+    "failed_step_id": "click_export",
+    "allowed_files": [
+      "example_skills/web_report_export/selectors.yaml"
+    ],
+    "allowed_selector_refs": [
+      "export_button"
+    ],
+    "must_not_touch_other_steps": true,
+    "must_not_touch_runtime": true
+  },
+  "created_at": "2026-06-18T00:00:00+00:00"
+}
