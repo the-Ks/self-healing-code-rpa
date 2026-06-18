@@ -7,7 +7,7 @@
 
 A self-healing Code RPA framework that turns web automation workflows into runnable, testable, repairable, and versioned Skills.
 
-The current MVP supports selector-level self-healing for Web RPA. A Skill is defined in YAML, executed by the Python runtime, observed on failure, repaired through a constrained `patch.json`, tested in a sandbox, and versioned with rollback support.
+The current MVP supports selector-level self-healing for Web RPA. A Skill is defined in YAML, executed by stable Python + Playwright code first, observed on failure, repaired through a constrained `patch.json`, tested in a sandbox, and versioned with rollback support. Normal execution does not call an LLM; repair starts only after deterministic execution and fallback selectors fail.
 
 Chinese documentation is available in [README.zh-CN.md](README.zh-CN.md).
 
@@ -41,7 +41,7 @@ The demo Skill runs against a local HTML fixture. It does not automate a real we
 - Not a traditional visual RPA designer.
 - Not a full AI Agent that continuously controls the browser.
 - Not a framework that calls an LLM during normal execution.
-- Not a desktop RPA, OCR, scheduling, or real-website integration layer yet.
+- Not a desktop RPA, OCR, scheduling, SaaS, multitenancy, or real-website integration layer yet.
 
 ## Project Structure
 
@@ -88,10 +88,15 @@ The `code_rpa/` package contains developer-facing CLI, validation, and SDK entry
 The MVP is intentionally narrow:
 
 - Web RPA with Playwright.
+- Stable code-first execution.
+- No LLM calls during normal execution.
 - `skill.yaml` workflow definitions.
 - `selectors.yaml` primary and fallback selectors.
 - Failure screenshots and DOM snapshots.
+- Failure URL, run log, failed step, and attempted selector context.
+- Skill create, validate, run, and test workflows.
 - Selector-only repair patches.
+- Strict patch validation and patch apply.
 - Sandbox-tested version updates.
 - Rollback to previous Skill versions.
 
@@ -502,21 +507,31 @@ Supported today:
 
 - Web RPA only.
 - Python + Playwright runtime.
+- Stable code-first Skill execution.
+- Normal execution must not call an LLM.
 - YAML-defined Skills under `example_skills/`.
+- Skill create, validate, run, and test commands.
 - Primary and fallback selector resolution.
-- Failure snapshots and `repair_request.json`.
+- Failure snapshots, URL, DOM, logs, failed step data, attempted selectors, and `repair_request.json`.
 - Selector-only `patch.json` validation.
+- Selector-only repair and patch apply.
 - Sandbox-tested Skill version creation.
 - Rollback to a previous Skill version.
 
 Not supported yet:
 
+- Full autonomous AI Agent behavior.
+- LLM control during normal execution.
+- Visual workflow designer.
 - Desktop RPA.
 - OCR RPA.
 - Scheduler or queue workers.
+- SaaS or multitenancy.
 - Production authentication and secret management.
 - General code patching by an LLM.
 - Automatic patch generation from `repair_request.json`.
+- Universal real-website adaptation.
+- High-risk operations without human approval.
 - Production deployment hardening.
 
 ## Safety Boundaries

@@ -1,9 +1,11 @@
 from pathlib import Path
+import importlib.metadata
 import shutil
 import subprocess
 import sys
 import uuid
 
+import code_rpa
 import code_rpa.cli as cli
 import pytest
 from code_rpa.cli import main
@@ -184,7 +186,15 @@ def test_cli_version_flag_prints_package_version(capsys):
     captured = capsys.readouterr()
 
     assert error.value.code == 0
-    assert "code_rpa 0.1.0" in captured.out
+    assert "code_rpa 0.2.0" in captured.out
+
+
+def test_release_version_metadata_is_020():
+    pyproject = tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    assert pyproject["project"]["version"] == "0.2.0"
+    assert importlib.metadata.version("self-healing-code-rpa") == "0.2.0"
+    assert code_rpa.__version__ == "0.2.0"
 
 
 def test_pyproject_exposes_console_scripts():
@@ -193,6 +203,49 @@ def test_pyproject_exposes_console_scripts():
     assert pyproject["project"]["requires-python"] == ">=3.11"
     assert pyproject["project"]["scripts"]["code-rpa"] == "code_rpa.cli:main"
     assert pyproject["project"]["scripts"]["code_rpa"] == "code_rpa.cli:main"
+
+
+def test_release_notes_and_readmes_cover_v020_boundaries():
+    changelog = (PROJECT_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    readme_zh = (PROJECT_ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+
+    assert "## [Unreleased]" in changelog
+    assert "## [0.2.0] - 2026-06-18" in changelog
+    assert "## v0.1.0 - 2026-06-18" in changelog
+    assert "selector-only" in changelog
+    assert "--import-mode=importlib" in changelog
+
+    for phrase in [
+        "code-rpa --version",
+        "code-rpa --project-root . skill create",
+        "code-rpa --project-root . skill validate",
+        "code-rpa --project-root . skill run",
+        "code-rpa --project-root . skill test",
+        "code-rpa --project-root . repair apply",
+        "Normal execution must not call an LLM.",
+        "Selector-only repair",
+        "Desktop RPA",
+        "OCR",
+        "SaaS or multitenancy",
+    ]:
+        assert phrase in readme
+
+    for phrase in [
+        "当前版本是 `v0.2.0`",
+        "正常执行不调用 LLM",
+        "当前修复范围为 selector-only",
+        "Skill create",
+        "Skill validate",
+        "Skill run",
+        "Skill test",
+        "Patch apply",
+        "桌面 RPA",
+        "OCR",
+        "SaaS",
+        "多租户",
+    ]:
+        assert phrase in readme_zh
 
 
 def test_repo_skill_files_exist():
