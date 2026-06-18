@@ -11,6 +11,7 @@ import sys
 from typing import Any
 
 from code_rpa import __version__
+from code_rpa.templates import SkillTemplateSystem
 from code_rpa.validator import SkillValidator
 from repair_agent.patch_validator import PatchValidator
 from skill_registry.registry import SkillRegistry
@@ -84,8 +85,20 @@ def handle_skill(args: argparse.Namespace, project_root: Path) -> int:
         return 0
 
     if args.action == "create":
-        create_skill(project_root, args.skill_id)
-        print(f"created example_skills/{args.skill_id}")
+        try:
+            created = SkillTemplateSystem(project_root).create_skill(args.skill_id)
+        except (FileExistsError, ValueError) as error:
+            print("FAIL")
+            print(f"- {error}")
+            return 1
+        print(f"created {created.skill_dir.relative_to(project_root)}")
+        print("files:")
+        for path in created.files:
+            print(f"- {path.relative_to(project_root)}")
+        print("next:")
+        print(f"- code-rpa --project-root . skill validate {args.skill_id}")
+        print(f"- code-rpa --project-root . skill run {args.skill_id}")
+        print(f"- code-rpa --project-root . skill test {args.skill_id}")
         return 0
 
     if args.action == "run":
@@ -166,44 +179,6 @@ def handle_version(args: argparse.Namespace, project_root: Path) -> int:
     return 1
 
 
-def create_skill(project_root: Path, skill_id: str) -> None:
-    validate_skill_id(skill_id)
-    skill_dir = project_root / "example_skills" / skill_id
-    if skill_dir.exists():
-        raise SystemExit(f"Skill already exists: {skill_id}")
-
-    skill_dir.mkdir(parents=True)
-    tests_dir = skill_dir / "tests"
-    tests_dir.mkdir()
-
-    skill_name = title_from_skill_id(skill_id)
-    assets_dir = project_root / ".agents" / "skills" / "self-healing-rpa-engineer" / "assets"
-    write_template(
-        assets_dir / "skill.yaml.template",
-        skill_dir / "skill.yaml",
-        skill_id,
-        skill_name,
-        fallback=skill_yaml_template(),
-    )
-    write_template(
-        assets_dir / "selectors.yaml.template",
-        skill_dir / "selectors.yaml",
-        skill_id,
-        skill_name,
-        fallback=selectors_yaml_template(),
-    )
-    write_template(
-        assets_dir / "repair_policy.yaml.template",
-        skill_dir / "repair_policy.yaml",
-        skill_id,
-        skill_name,
-        fallback=repair_policy_yaml_template(),
-    )
-    (skill_dir / "main.py").write_text(main_py_template(skill_id), encoding="utf-8")
-    (skill_dir / "README.md").write_text(skill_readme_template(skill_id, skill_name), encoding="utf-8")
-    (tests_dir / "test_skill.py").write_text(test_skill_template(skill_id), encoding="utf-8")
-
-
 def run_skill(project_root: Path, skill_id: str) -> dict[str, Any]:
     module = load_skill_main(project_root, skill_id)
     result = module.run(storage_root=project_root / "storage")
@@ -232,22 +207,6 @@ def load_skill_main(project_root: Path, skill_id: str) -> Any:
     return module
 
 
-def write_template(
-    template_path: Path,
-    target_path: Path,
-    skill_id: str,
-    skill_name: str,
-    *,
-    fallback: str,
-) -> None:
-    template = template_path.read_text(encoding="utf-8") if template_path.exists() else fallback
-    rendered = template.format(
-        skill_id=skill_id,
-        skill_name=skill_name,
-    )
-    target_path.write_text(rendered, encoding="utf-8")
-
-
 def skill_summary(skill: Any) -> dict[str, Any]:
     return {
         "id": skill.id,
@@ -266,140 +225,6 @@ def find_version(manager: VersionManager, skill_id: str, version_id: str) -> dic
         if version.get("version_id") == version_id:
             return version
     return None
-
-
-def skill_yaml_template() -> str:
-    return '''id: "{skill_id}"
-name: "{skill_name}"
-version: 0.1.0
-entrypoint: main.py
-selectors: selectors.yaml
-repair_policy: repair_policy.yaml
-steps:
-  - id: open_page
-    type: navigate
-    goal: Open the starting page for this Skill.
-    url: "about:blank"
-'''
-
-
-def selectors_yaml_template() -> str:
-    return '''# Add logical selector refs here.
-# Example:
-# submit_button:
-#   primary: "#submit"
-#   fallbacks:
-#     - "button[data-testid='submit']"
-'''
-
-
-def repair_policy_yaml_template() -> str:
-    return '''retry:
-  max_attempts: 1
-  delay_seconds: 0
-allowed_patch_scope:
-  - selectors
-sandbox:
-  required: true
-  command:
-    - python
-    - -m
-    - pytest
-'''
-
-
-def main_py_template(skill_id: str) -> str:
-    return f'''"""Entrypoint for the {skill_id} Skill."""
-
-from __future__ import annotations
-
-from pathlib import Path
-import sys
-from typing import Any
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from rpa_runtime.browser import PlaywrightBrowser
-from rpa_runtime.executor import RPAExecutor, RunResult
-from skill_registry.loader import SkillLoader
-
-
-def run(page: Any | None = None, storage_root: Path | None = None) -> RunResult:
-    skill_path = Path(__file__).with_name("skill.yaml")
-    skill = SkillLoader().load(skill_path)
-    executor = RPAExecutor(
-        storage_root=storage_root or PROJECT_ROOT / "storage",
-        browser=PlaywrightBrowser(headless=True),
-    )
-    return executor.run(skill, page=page)
-
-
-if __name__ == "__main__":
-    print(run().to_dict())
-'''
-
-
-def test_skill_template(skill_id: str) -> str:
-    return f'''from pathlib import Path
-import importlib.util
-import sys
-
-
-SKILL_DIR = Path(__file__).resolve().parents[1]
-PROJECT_ROOT = SKILL_DIR.parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-spec = importlib.util.spec_from_file_location("{skill_id}_main", SKILL_DIR / "main.py")
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-from skill_registry.loader import SkillLoader
-
-
-def test_skill_loads(tmp_path):
-    skill = SkillLoader().load(SKILL_DIR / "skill.yaml")
-    assert skill.id == "{skill_id}"
-    assert skill.entrypoint == "main.py"
-'''
-
-
-def skill_readme_template(skill_id: str, skill_name: str) -> str:
-    return f"""# {skill_name}
-
-Generated Self-Healing Code RPA Skill.
-
-## Boundary
-
-- Web RPA only.
-- Normal execution must not call an LLM.
-- Repairs must stay local to the failed selector or failed step.
-
-## Files
-
-- `skill.yaml` defines the workflow.
-- `selectors.yaml` defines primary and fallback selectors.
-- `repair_policy.yaml` defines retry and sandbox policy.
-- `main.py` is the thin executable entrypoint.
-- `tests/test_skill.py` verifies the Skill can be loaded.
-
-## Commands
-
-```powershell
-python -m code_rpa skill show {skill_id}
-python -m code_rpa skill test {skill_id}
-```
-"""
-
-
-def validate_skill_id(skill_id: str) -> None:
-    allowed = set("abcdefghijklmnopqrstuvwxyz0123456789_-.")
-    if not skill_id or any(char not in allowed for char in skill_id):
-        raise SystemExit("skill_id must contain lowercase letters, digits, '_', '-', or '.'")
-
-
-def title_from_skill_id(skill_id: str) -> str:
-    return " ".join(part.capitalize() for part in skill_id.replace("-", "_").split("_") if part)
 
 
 def read_json(path: Path) -> dict[str, Any]:

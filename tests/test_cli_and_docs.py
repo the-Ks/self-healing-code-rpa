@@ -46,6 +46,43 @@ def test_cli_skill_create_generates_standard_skill_files(tmp_path):
     assert "Generated Self-Healing Code RPA Skill." in (skill_dir / "README.md").read_text(encoding="utf-8")
 
 
+def test_cli_skill_create_outputs_next_steps_and_generates_runnable_skill(tmp_path, capsys):
+    project = copy_project(tmp_path)
+
+    exit_code = main(["--project-root", str(project), "skill", "create", "invoice_export"])
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert "created" in captured.out
+    assert "skill validate invoice_export" in captured.out
+    assert "skill run invoice_export" in captured.out
+    assert "skill test invoice_export" in captured.out
+
+    exit_code = main(["--project-root", str(project), "skill", "validate", "invoice_export"])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert captured.out.strip() == "PASS"
+
+    exit_code = main(["--project-root", str(project), "skill", "run", "invoice_export"])
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "'status': 'success'" in captured.out
+
+    exit_code = main(["--project-root", str(project), "skill", "test", "invoice_export"])
+    assert exit_code == 0
+
+
+def test_cli_skill_create_reports_invalid_skill_id(tmp_path, capsys):
+    project = copy_project(tmp_path)
+
+    exit_code = main(["--project-root", str(project), "skill", "create", "InvoiceExport"])
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "FAIL" in captured.out
+    assert "skill_id must contain lowercase letters" in captured.out
+
+
 def test_cli_skill_show_prints_skill_summary(capsys):
     exit_code = main(["--project-root", str(PROJECT_ROOT), "skill", "show", "web_report_export"])
 

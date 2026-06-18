@@ -263,7 +263,24 @@ Every version stores `metadata.json` with patch ID, base version, test result, c
 Use the CLI scaffold:
 
 ```powershell
-python -m code_rpa skill create invoice_export
+code-rpa --project-root . skill create invoice_export
+```
+
+The command creates the Skill from repository templates under `.agents/skills/self-healing-rpa-engineer/assets/`, adds a runnable Python entrypoint, and prints the next commands:
+
+```text
+created example_skills/invoice_export
+files:
+- example_skills/invoice_export/skill.yaml
+- example_skills/invoice_export/selectors.yaml
+- example_skills/invoice_export/repair_policy.yaml
+- example_skills/invoice_export/main.py
+- example_skills/invoice_export/README.md
+- example_skills/invoice_export/tests/test_skill.py
+next:
+- code-rpa --project-root . skill validate invoice_export
+- code-rpa --project-root . skill run invoice_export
+- code-rpa --project-root . skill test invoice_export
 ```
 
 This creates:
@@ -287,6 +304,90 @@ Then edit:
 - `tests/test_skill.py` for Skill-level pytest coverage.
 
 Generated Skills are intentionally minimal. They do not introduce new RPA capabilities; they provide the standard file layout expected by the runtime, repair pipeline, sandbox tests, and future Codex agents.
+
+### Validate The Skill
+
+```powershell
+code-rpa --project-root . skill validate invoice_export
+```
+
+Successful output:
+
+```text
+PASS
+```
+
+Failed validation prints friendly errors:
+
+```text
+FAIL
+- Missing selectors.yaml
+- Duplicate step_id: click_export
+- Unknown selector_ref: export_button
+```
+
+### Run The Skill
+
+The generated Skill starts with a safe default navigation step:
+
+```yaml
+steps:
+  - id: open_page
+    type: navigate
+    goal: Open the starting page for this Skill.
+    url: "about:blank"
+```
+
+It can run immediately after creation:
+
+```powershell
+code-rpa --project-root . skill run invoice_export
+```
+
+Then run the generated Skill test:
+
+```powershell
+code-rpa --project-root . skill test invoice_export
+```
+
+### Complete Edit Example
+
+To turn the scaffold into a real Skill, edit `skill.yaml` and `selectors.yaml` together:
+
+```yaml
+# example_skills/invoice_export/skill.yaml
+id: invoice_export
+name: Invoice Export
+version: 0.1.0
+entrypoint: main.py
+selectors: selectors.yaml
+repair_policy: repair_policy.yaml
+steps:
+  - id: open_invoice_page
+    type: navigate
+    goal: Open the invoice export page.
+    url: "about:blank"
+
+  - id: click_export
+    type: click
+    goal: Click the invoice export button.
+    selector_ref: export_button
+    target_description: Button that starts invoice export.
+```
+
+```yaml
+# example_skills/invoice_export/selectors.yaml
+export_button:
+  primary: "#export-invoices"
+  fallbacks:
+    - "button[data-testid='export-invoices']"
+```
+
+Then validate again:
+
+```powershell
+code-rpa --project-root . skill validate invoice_export
+```
 
 ## Skill SDK
 
