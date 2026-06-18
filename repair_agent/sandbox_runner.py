@@ -46,12 +46,11 @@ class SandboxRunner:
         sandbox_parent = self._make_sandbox_parent()
         sandbox_project = sandbox_parent / source_project.name
         sandbox_skill = sandbox_project / skill.base_path.resolve().relative_to(source_project)
-        command = self._normalize_test_command(test_command)
-
-        shutil.copytree(source_project, sandbox_project, ignore=self._ignore_runtime_artifacts)
 
         started = perf_counter()
         try:
+            command = self._normalize_test_command(test_command, sandbox_parent=sandbox_parent)
+            shutil.copytree(source_project, sandbox_project, ignore=self._ignore_runtime_artifacts)
             sandbox_skill_root = sandbox_project / skill.base_path.resolve().relative_to(source_project)
             self.apply_patch_to_project(sandbox_project, patch, skill_root=sandbox_skill_root)
             completed = subprocess.run(
@@ -71,7 +70,7 @@ class SandboxRunner:
                 duration=duration,
                 sandbox_project_path=str(sandbox_project),
                 patched_skill_path=str(sandbox_skill),
-                test_command=test_command,
+                test_command=command,
             )
         except Exception as error:
             duration = perf_counter() - started
@@ -82,7 +81,7 @@ class SandboxRunner:
                 duration=duration,
                 sandbox_project_path=str(sandbox_project),
                 patched_skill_path=str(sandbox_skill),
-                test_command=test_command,
+                test_command=test_command if isinstance(test_command, list) else [],
             )
 
     def apply_patch_to_project(
@@ -172,15 +171,25 @@ class SandboxRunner:
             return Path(tempfile.mkdtemp(prefix="repair_sandbox_", dir=self.sandbox_root))
         return Path(tempfile.mkdtemp(prefix="repair_sandbox_"))
 
-    def _normalize_test_command(self, test_command: list[str]) -> list[str]:
+    def _normalize_test_command(self, test_command: list[str], *, sandbox_parent: Path) -> list[str]:
         if not isinstance(test_command, list) or not test_command or not all(
             isinstance(item, str) for item in test_command
         ):
             raise ValueError("repair_request.test_command must be a non-empty list of strings")
         self._reject_shell_metacharacters(test_command)
         if test_command[:3] == ["python", "-m", "pytest"]:
-            return [sys.executable, "-m", "pytest", *test_command[3:]]
+            command = [sys.executable, "-m", "pytest", *test_command[3:]]
+            return self._with_pytest_basetemp(command, sandbox_parent=sandbox_parent)
         raise ValueError("repair_request.test_command must start with ['python', '-m', 'pytest']")
+
+    def _with_pytest_basetemp(self, command: list[str], *, sandbox_parent: Path) -> list[str]:
+        if self._has_pytest_basetemp(command):
+            return command
+        basetemp = Path(tempfile.mkdtemp(prefix="pytest_basetemp_", dir=sandbox_parent))
+        return [*command, "--basetemp", str(basetemp)]
+
+    def _has_pytest_basetemp(self, command: list[str]) -> bool:
+        return any(item == "--basetemp" or item.startswith("--basetemp=") for item in command)
 
     def _reject_shell_metacharacters(self, test_command: list[str]) -> None:
         blocked = {";", "&", "|", ">", "<", "`", "\n", "\r"}
