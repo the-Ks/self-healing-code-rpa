@@ -4,6 +4,30 @@ Self-Healing Code RPA is built around deterministic automation first and constra
 
 The framework does not use AI during normal execution. A Skill runs as Python + Playwright code. If deterministic execution fails after retries and fallback selectors, the runtime captures failure evidence and writes a structured repair request. A selector-level patch can then be validated, tested in a sandbox, versioned, and rolled back.
 
+## End-to-End Repair Lifecycle
+
+```text
+Skill run
+  -> selector failure
+  -> failure snapshot
+  -> repair_request.json
+  -> static patch.json fixture
+  -> strict patch validation
+  -> sandbox replay of the failed step or smoke test
+  -> safe live apply
+  -> version snapshot
+  -> rerun success check
+  -> rollback if needed
+```
+
+The important rule is simple:
+
+- normal execution does not call an LLM
+- the patch is only constrained data
+- sandbox success is required before the live Skill changes
+- sandbox commands come only from framework-generated `repair_request.json`, never from `patch.json`
+- rollback must restore the previous selector content and version pointer
+
 ## Runtime Flow
 
 ```text
@@ -25,6 +49,7 @@ Successful execution ends after all steps complete. Failed execution captures:
 - current URL
 - screenshot path
 - DOM snapshot path
+- run log path
 - repair request path
 
 ## Repair Flow
@@ -34,11 +59,15 @@ repair_request.json
   -> patch.json
   -> PatchValidator
   -> SandboxRunner
+  -> RepairPipeline
+  -> VersionManager.snapshot
   -> VersionManager.create_new_version
   -> rollback_to_version when needed
 ```
 
 Only sandbox-tested selector patches are eligible for new Skill versions.
+`repair_request.json` and `patch.json` are both constrained to selector-only scope.
+The live Skill is only updated after validation and sandbox checks succeed.
 
 ## Modules
 
@@ -61,7 +90,7 @@ Runs Skills and observes failures:
 - run logs
 - screenshots and DOM snapshots
 
-This module is protected during the current P1 phase.
+Changes to this module should stay tied to runtime execution and failure capture. It must not call an LLM during normal execution.
 
 ### `repair_agent/`
 
@@ -70,8 +99,9 @@ Owns repair artifacts and safety checks:
 - repair request generation
 - patch validation
 - sandbox patch testing
+- end-to-end repair pipeline orchestration
 
-This module is protected during the current P1 phase.
+Changes to this module should preserve selector-only repair, strict validation, sandbox-first application, and auditability.
 
 ### `skill_registry/`
 
@@ -82,7 +112,7 @@ Owns Skill loading and version management:
 - current version tracking
 - version rollback
 
-This module is protected during the current P1 phase.
+Changes to this module should preserve version snapshots, current-version tracking, safe live replacement, and rollback consistency.
 
 ### `example_skills/`
 
@@ -105,6 +135,7 @@ Supported today:
 - Sandbox patch testing.
 - Versioned Skill repair.
 - Rollback.
+- Repair pipeline audit data.
 
 Not supported today:
 
@@ -118,6 +149,7 @@ Not supported today:
 - LLM calls during normal execution.
 - AI Agent mode.
 - Arbitrary code patching.
+- Automatic live patching without sandbox.
 
 ## Design Principle
 

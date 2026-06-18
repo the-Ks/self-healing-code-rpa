@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 import json
+import os
 import re
 import shutil
 
@@ -44,6 +45,7 @@ class VersionManager:
         patched_skill_path: str | Path,
         patch: dict[str, Any],
         test_result: Any,
+        repair_request_path: str | Path | None = None,
     ) -> Path:
         if not getattr(test_result, "success", False):
             raise ValueError("Cannot create a new version from a failed sandbox test result")
@@ -52,32 +54,48 @@ class VersionManager:
         new_version = self._next_version(patch.get("base_version", skill.version))
         self._update_skill_yaml_version(patched_skill_path / "skill.yaml", new_version)
 
-        version_dir = self._create_version_dir(skill.id, new_version, patch.get("patch_id", "patch"))
-        self._copy_skill_tree(patched_skill_path, version_dir)
+        version_dir: Path | None = None
+        live_backup_dir: Path | None = None
+        try:
+            version_dir = self._create_version_dir(skill.id, new_version, patch.get("patch_id", "patch"))
+            self._copy_skill_tree(patched_skill_path, version_dir)
 
-        metadata = {
-            "created_at": self._timestamp_iso(),
-            "skill_id": skill.id,
-            "patch_id": patch.get("patch_id"),
-            "base_version": patch.get("base_version", skill.version),
-            "test_result": {
-                "success": getattr(test_result, "success", False),
-                "stdout": getattr(test_result, "stdout", ""),
-                "stderr": getattr(test_result, "stderr", ""),
-                "duration": getattr(test_result, "duration", 0.0),
-                "test_command": getattr(test_result, "test_command", []),
-            },
-            "changed_files": [patch.get("selector_changes", {}).get("target_file")],
-            "reason": patch.get("reason"),
-            "skill_version": new_version,
-            "version_label": new_version,
-            "patch_type": patch.get("patch_type"),
-        }
-        self._write_metadata(version_dir, metadata)
+            metadata = {
+                "created_at": self._timestamp_iso(),
+                "skill_id": skill.id,
+                "patch_id": patch.get("patch_id"),
+                "repair_request_path": str(repair_request_path) if repair_request_path else None,
+                "base_version": patch.get("base_version", skill.version),
+                "source_version": patch.get("base_version", skill.version),
+                "new_version": new_version,
+                "test_result": {
+                    "success": getattr(test_result, "success", False),
+                    "stdout": getattr(test_result, "stdout", ""),
+                    "stderr": getattr(test_result, "stderr", ""),
+                    "duration": getattr(test_result, "duration", 0.0),
+                    "test_command": getattr(test_result, "test_command", []),
+                },
+                "changed_files": [patch.get("selector_changes", {}).get("target_file")],
+                "reason": patch.get("reason"),
+                "skill_version": new_version,
+                "version_label": new_version,
+                "patch_type": patch.get("patch_type"),
+                "result": "applied",
+            }
+            self._write_metadata(version_dir, metadata)
 
-        self._replace_live_skill(skill.base_path, version_dir)
-        self._set_current(skill.id, version_dir.name)
-        return version_dir
+            live_backup_dir = self._replace_live_skill(skill.base_path, version_dir, keep_backup=True)
+            self._set_current(skill.id, version_dir.name)
+        except Exception:
+            if live_backup_dir is not None:
+                self._restore_live_skill(skill.base_path, live_backup_dir)
+            if version_dir is not None and version_dir.exists():
+                shutil.rmtree(version_dir)
+            raise
+        else:
+            if live_backup_dir is not None and live_backup_dir.exists():
+                shutil.rmtree(live_backup_dir)
+            return version_dir
 
     def list_versions(self, skill_id: str) -> list[dict[str, Any]]:
         root = self._skill_versions_root(skill_id)
@@ -137,37 +155,61 @@ class VersionManager:
             else:
                 shutil.copy2(item, target)
 
-    def _replace_live_skill(self, live_skill_path: Path, version_dir: Path) -> None:
+    def _replace_live_skill(self, live_skill_path: Path, version_dir: Path, *, keep_backup: bool = False) -> Path | None:
         backup_dir = live_skill_path.parent / f"{live_skill_path.name}.rollback_tmp"
+        temp_live_dir = live_skill_path.parent / f"{live_skill_path.name}.replace_tmp"
         if backup_dir.exists():
             shutil.rmtree(backup_dir)
+        if temp_live_dir.exists():
+            shutil.rmtree(temp_live_dir)
         if live_skill_path.exists():
             live_skill_path.rename(backup_dir)
 
         try:
-            live_skill_path.mkdir(parents=True, exist_ok=True)
+            temp_live_dir.mkdir(parents=True, exist_ok=False)
             for item in version_dir.iterdir():
                 if item.name == "metadata.json":
                     continue
-                target = live_skill_path / item.name
+                target = temp_live_dir / item.name
                 if item.is_dir():
                     shutil.copytree(item, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
                 else:
                     shutil.copy2(item, target)
-        finally:
+            temp_live_dir.rename(live_skill_path)
+        except Exception:
+            if temp_live_dir.exists():
+                shutil.rmtree(temp_live_dir)
+            if live_skill_path.exists():
+                shutil.rmtree(live_skill_path)
             if backup_dir.exists():
+                backup_dir.rename(live_skill_path)
+            raise
+        else:
+            if backup_dir.exists() and not keep_backup:
                 shutil.rmtree(backup_dir)
+        return backup_dir if backup_dir.exists() else None
+
+    def _restore_live_skill(self, live_skill_path: Path, backup_dir: Path) -> None:
+        if live_skill_path.exists():
+            shutil.rmtree(live_skill_path)
+        if backup_dir.exists():
+            backup_dir.rename(live_skill_path)
 
     def _write_metadata(self, version_dir: Path, metadata: dict[str, Any]) -> None:
-        (version_dir / "metadata.json").write_text(
+        metadata_path = version_dir / "metadata.json"
+        temp_path = version_dir / ".metadata.json.tmp"
+        temp_path.write_text(
             json.dumps(metadata, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
+        os.replace(temp_path, metadata_path)
 
     def _set_current(self, skill_id: str, version_id: str) -> None:
         current_path = self._skill_versions_root(skill_id) / "current.json"
         payload = {"version_id": version_id, "updated_at": self._timestamp_iso()}
-        current_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        temp_path = current_path.with_name(".current.json.tmp")
+        temp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(temp_path, current_path)
 
     def _next_version(self, base_version: str) -> str:
         parts = base_version.split(".")
@@ -182,4 +224,6 @@ class VersionManager:
     def _update_skill_yaml_version(self, skill_yaml_path: Path, new_version: str) -> None:
         data = yaml.safe_load(skill_yaml_path.read_text(encoding="utf-8")) or {}
         data["version"] = new_version
-        skill_yaml_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+        temp_path = skill_yaml_path.with_name(f".{skill_yaml_path.name}.tmp")
+        temp_path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+        os.replace(temp_path, skill_yaml_path)

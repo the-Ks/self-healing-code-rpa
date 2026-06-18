@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+### Improvements
+
+- Hardened the selector-level repair pipeline with an explicit validation, sandbox, apply, version, and rollback orchestration layer.
+- Added `code-rpa repair apply` for end-to-end selector repair using existing `repair_request.json` and static `patch.json` artifacts.
+- Added audit fields to repair requests and version metadata, including attempted selectors, run log paths, repair request paths, source versions, new versions, and apply results.
+- Added safer sandbox selector patch writes and safer live Skill replacement during version application.
+- Strengthened patch validation for path traversal, absolute paths, protected framework directories, unknown patch types, selector scope, and target file scope.
+- Locked sandbox command execution to framework-generated `repair_request.json` `test_command` arrays and reject any `test_command` supplied by `patch.json`.
+
+### Tests
+
+- Added end-to-end repair pipeline coverage for original success, selector failure, repair request creation, static patch validation, sandbox verification, live apply, version creation, rerun success, and rollback.
+- Added negative coverage for target file overreach, selector ref overreach, failed step mismatch, skill mismatch, non-null `code_changes`, path traversal, unknown patch type, sandbox failure, idempotent fallback application, and rollback content restoration.
+
+### Boundaries
+
+- Normal Skill execution still does not call an LLM.
+- Patches remain selector-only.
+- `code_changes` must remain `null`.
+- Sandbox success is required before live Skill modification.
+- No Web UI, Scheduler, OCR, Desktop RPA, real website integration, account management, or multitenancy was added.
+
 ## v0.1.0 - 2026-06-18
 
 ### New Features

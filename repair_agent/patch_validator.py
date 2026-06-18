@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 import json
 
+from repair_agent.path_security import normalize_relative_path, resolve_allowed_selector_target
+
 
 @dataclass(frozen=True)
 class PatchValidationResult:
@@ -18,6 +20,33 @@ class PatchValidationResult:
 class PatchValidator:
     """Validate that a patch stays within the failed step and selector scope."""
 
+    ALLOWED_PATCH_FIELDS = {
+        "patch_id",
+        "skill_id",
+        "skill_name",
+        "base_version",
+        "target_step_id",
+        "patch_type",
+        "selector_changes",
+        "code_changes",
+        "reason",
+        "risk_level",
+        "allowed_repair_scope",
+        "created_at",
+    }
+    REQUIRED_PATCH_FIELDS = ALLOWED_PATCH_FIELDS
+    ALLOWED_SCOPE_FIELDS = {
+        "scope_type",
+        "failed_step_id",
+        "allowed_files",
+        "allowed_selector_refs",
+        "must_not_touch_other_steps",
+        "must_not_touch_runtime",
+    }
+    SELECTOR_CHANGE_FIELDS_BY_TYPE = {
+        "selector_update": {"target_file", "selector_ref", "new_primary", "new_fallbacks"},
+        "fallback_selector_add": {"target_file", "selector_ref", "add_fallbacks"},
+    }
     PATCH_TYPE_WHITELIST = {"selector_update", "fallback_selector_add"}
     PROTECTED_FILE_NAMES = {
         "main.py",
@@ -29,6 +58,7 @@ class PatchValidator:
         "logger.py",
         "retry_policy.py",
     }
+    PROTECTED_DIRECTORIES = {"rpa_runtime", "repair_agent", "skill_registry", "code_rpa"}
 
     def validate_patch_file(
         self,
@@ -61,6 +91,12 @@ class PatchValidator:
         repair_risk = str(repair_request.get("risk_level", "")).lower()
         patch_risk = str(patch.get("risk_level", "")).lower()
         patch_allowed_scope = patch.get("allowed_repair_scope")
+
+        self._validate_patch_schema(patch, errors)
+
+        patch_id = patch.get("patch_id")
+        if not isinstance(patch_id, str) or not patch_id:
+            errors.append("patch_id must be a non-empty string")
 
         if patch.get("skill_name") != expected_skill_name:
             errors.append(
@@ -97,7 +133,9 @@ class PatchValidator:
             errors.append("high-risk steps cannot be auto-patched")
 
         if patch.get("patch_type") not in self.PATCH_TYPE_WHITELIST:
-            errors.append(f"patch_type must be one of {sorted(self.PATCH_TYPE_WHITELIST)}")
+            errors.append(
+                f"unknown patch_type: {patch.get('patch_type')}; must be one of {sorted(self.PATCH_TYPE_WHITELIST)}"
+            )
 
         if not isinstance(patch.get("reason"), str) or not patch.get("reason"):
             errors.append("patch reason is required")
@@ -105,16 +143,8 @@ class PatchValidator:
         if str(patch.get("risk_level", "")).lower() not in {"low", "medium"}:
             errors.append("patch risk_level must be 'low' or 'medium'")
 
-        test_command = patch.get("test_command")
-        if not isinstance(test_command, list) or not test_command or not all(
-            isinstance(item, str) for item in test_command
-        ):
-            errors.append("test_command must be a non-empty list of strings")
-        elif test_command[:3] != ["python", "-m", "pytest"]:
-            errors.append("test_command must start with ['python', '-m', 'pytest']")
-
         if "code_changes" not in patch or patch.get("code_changes") is not None:
-            errors.append("code_changes must be null in phase two")
+            errors.append("code_changes must be null in phase three")
 
         if not isinstance(patch_allowed_scope, dict):
             errors.append("allowed_repair_scope must be an object")
@@ -134,6 +164,7 @@ class PatchValidator:
                 patch_type=str(patch.get("patch_type")),
                 expected_selector_refs=expected_selector_refs,
                 expected_allowed_files=expected_allowed_files,
+                current_skill=current_skill,
                 errors=errors,
             )
 
@@ -148,8 +179,14 @@ class PatchValidator:
         patch_type: str,
         expected_selector_refs: set[str],
         expected_allowed_files: set[str],
+        current_skill: Any | None,
         errors: list[str],
     ) -> None:
+        allowed_selector_fields = self.SELECTOR_CHANGE_FIELDS_BY_TYPE.get(patch_type, {"target_file", "selector_ref"})
+        unknown_selector_fields = sorted(set(selector_changes) - allowed_selector_fields)
+        if unknown_selector_fields:
+            errors.append(f"selector_changes contains unknown fields: {unknown_selector_fields}")
+
         selector_ref = selector_changes.get("selector_ref")
         if selector_ref not in expected_selector_refs:
             errors.append(f"selector_changes.selector_ref must be in {sorted(expected_selector_refs)}")
@@ -162,15 +199,29 @@ class PatchValidator:
         if target_file == "selectors.yaml":
             errors.append("selector_changes.target_file must be a full relative path, not 'selectors.yaml'")
 
-        if Path(target_file).is_absolute():
-            errors.append("selector_changes.target_file must be a repository-relative path")
+        try:
+            normalized_target = normalize_relative_path(target_file, "selector_changes.target_file")
+        except ValueError as error:
+            errors.append(str(error))
+            normalized_target = target_file.replace("\\", "/")
 
-        normalized_target = target_file.replace("\\", "/")
         if normalized_target not in expected_allowed_files:
             errors.append("selector_changes.target_file must be present in allowed_repair_scope.allowed_files")
 
+        if current_skill is not None:
+            project_root = self._infer_project_root(current_skill)
+            try:
+                resolve_allowed_selector_target(
+                    project_root=project_root,
+                    skill_root=current_skill.base_path,
+                    target_file=target_file,
+                    allowed_files=expected_allowed_files,
+                )
+            except ValueError as error:
+                errors.append(str(error))
+
         if normalized_target.endswith("/main.py") or any(
-            segment in normalized_target.split("/") for segment in ("rpa_runtime", "repair_agent", "skill_registry")
+            segment in normalized_target.split("/") for segment in self.PROTECTED_DIRECTORIES
         ):
             errors.append("selector_changes.target_file must not touch runtime or repair framework code")
 
@@ -204,6 +255,10 @@ class PatchValidator:
         patch_scope: dict[str, Any],
         errors: list[str],
     ) -> None:
+        unknown_scope_fields = sorted(set(patch_scope) - self.ALLOWED_SCOPE_FIELDS)
+        if unknown_scope_fields:
+            errors.append(f"allowed_repair_scope contains unknown fields: {unknown_scope_fields}")
+
         required_values = {
             "scope_type": "selector_only",
             "failed_step_id": repair_scope.get("failed_step_id"),
@@ -223,6 +278,23 @@ class PatchValidator:
         patch_refs = sorted(patch_scope.get("allowed_selector_refs", []) or [])
         if patch_refs != repair_refs:
             errors.append("allowed_repair_scope.allowed_selector_refs must match repair_request")
+
+    def _validate_patch_schema(self, patch: dict[str, Any], errors: list[str]) -> None:
+        unknown_fields = sorted(set(patch) - self.ALLOWED_PATCH_FIELDS)
+        if unknown_fields:
+            errors.append(f"patch contains unknown fields: {unknown_fields}")
+        missing_fields = sorted(self.REQUIRED_PATCH_FIELDS - set(patch))
+        for field_name in missing_fields:
+            errors.append(f"patch is missing required field: {field_name}")
+        if "test_command" in patch:
+            errors.append("patch must not define test_command; repair_request.test_command is the only command source")
+
+    def _infer_project_root(self, skill: Any) -> Path:
+        base_path = skill.base_path.resolve()
+        for parent in [base_path, *base_path.parents]:
+            if (parent / "rpa_runtime").exists() and (parent / "skill_registry").exists():
+                return parent
+        return base_path.parent
 
     def _read_json(self, path: str | Path) -> dict[str, Any]:
         with Path(path).open("r", encoding="utf-8") as file:
