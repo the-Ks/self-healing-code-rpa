@@ -1,5 +1,10 @@
 # Self-Healing Code RPA Framework
 
+[![Tests](https://github.com/the-Ks/self-healing-code-rpa/actions/workflows/tests.yml/badge.svg)](https://github.com/the-Ks/self-healing-code-rpa/actions/workflows/tests.yml)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![Playwright](https://img.shields.io/badge/playwright-chromium-2EAD33)
+![License: MIT](https://img.shields.io/badge/license-MIT-green)
+
 A self-healing Code RPA framework that turns web automation workflows into runnable, testable, repairable, and versioned Skills.
 
 The current MVP supports selector-level self-healing for Web RPA. A Skill is defined in YAML, executed by the Python runtime, observed on failure, repaired through a constrained `patch.json`, tested in a sandbox, and versioned with rollback support.
@@ -14,12 +19,61 @@ Current scope: Web RPA with selector-level self-healing.
 
 It is not ready for production use without additional security review, scheduling, authentication, deployment hardening, and environment-specific approval controls.
 
+## Quick Start
+
+```powershell
+git clone https://github.com/the-Ks/self-healing-code-rpa.git
+cd self-healing-code-rpa
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e .[dev]
+python -m playwright install chromium
+code-rpa --help
+code-rpa --project-root . skill validate web_report_export
+code-rpa --project-root . skill run web_report_export
+python -m pytest
+```
+
+The demo Skill runs against a local HTML fixture. It does not automate a real website.
+
 ## What This Is Not
 
 - Not a traditional visual RPA designer.
 - Not a full AI Agent that continuously controls the browser.
 - Not a framework that calls an LLM during normal execution.
 - Not a desktop RPA, OCR, scheduling, or real-website integration layer yet.
+
+## Project Structure
+
+```text
+self-healing-code-rpa/
+  README.md
+  README.zh-CN.md
+  LICENSE
+  CHANGELOG.md
+  CONTRIBUTING.md
+  SECURITY.md
+  AGENTS.md
+  pyproject.toml
+  requirements.txt
+  pytest.ini
+  code_rpa/
+  rpa_runtime/
+  repair_agent/
+  skill_registry/
+  example_skills/
+  tests/
+  docs/
+  .agents/
+    skills/
+      self-healing-rpa-engineer/
+  .github/
+    workflows/
+      tests.yml
+  storage/
+```
+
+The `code_rpa/` package contains developer-facing CLI, validation, and SDK entrypoints. The core runtime, repair pipeline, and versioning modules remain in `rpa_runtime/`, `repair_agent/`, and `skill_registry/`.
 
 ## Architecture
 
@@ -64,6 +118,8 @@ python -m playwright install chromium
 ```
 
 If `python` is not on PATH, use the installed Python executable directly.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and contribution boundaries.
 
 ## Run Demo
 
@@ -263,6 +319,13 @@ skill.save()
 
 The SDK only builds Skill files. It does not execute Skills, call an LLM, or add new RPA capabilities.
 
+## Developer Docs
+
+- [Architecture](docs/architecture.md)
+- [Skill Spec](docs/skill-spec.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security](SECURITY.md)
+
 ## Codex Development Contract
 
 This repository includes a local Codex Skill at:
@@ -312,3 +375,25 @@ Not supported yet:
 - High-risk steps must require human confirmation.
 - High-risk patches are rejected for automatic application.
 - Secrets, passwords, tokens, cookies, and session data must not be written to logs or repair requests.
+
+## Roadmap
+
+### v0.1.x Repository Engineering
+
+- Improve repository presentation and contributor documentation.
+- Keep installation, CLI, and example Skill workflows easy to verify.
+- Preserve current Runtime, Repair, Registry, Sandbox, and Version boundaries.
+
+### P2 Business Skill Examples
+
+- Add realistic business Skill examples that still run against controlled local fixtures or explicitly approved test environments.
+- Avoid real account automation, secret handling, and production website integrations until the security model is reviewed.
+
+### Later Production Hardening
+
+- Security review and secret-handling policy.
+- Authentication and approval controls.
+- Scheduling and deployment design.
+- Reliability validation against real-world workflows.
+
+Any roadmap item that expands Runtime, Repair, Version, AI Agent, OCR, Scheduler, or Web UI capability requires explicit approval before implementation.
